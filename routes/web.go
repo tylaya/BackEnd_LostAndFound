@@ -22,4 +22,5 @@ func RegisterRoutes() {
 	
 	http.HandleFunc("/api/barang/hilang", middleware.RequireAuth(handlers.PostBarangHilangHandler(config.DB)))
 	http.HandleFunc("/api/barang/ditemukan", middleware.RequireAuth(handlers.PostBarangDitemukanHandler(config.DB)))
+	http.HandleFunc("/api/products", handlers.HandlerProductList)
 }
