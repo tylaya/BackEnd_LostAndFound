@@ -9,165 +9,144 @@ import (
 	"time"
 
 	"backend-lostfound/config"
+	"backend-lostfound/models"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Struktur data yang diharapkan dari Frontend saat mendaftar
-type RegisterRequest struct {
-	FullName  string `json:"full_name"`
-	Email     string `json:"email"`
-	Phone     string `json:"phone"`
-	StudentID string `json:"student_id"`
-	Faculty   string `json:"faculty"` //ganti dengan jurusan
-	Password  string `json:"password"`
-}
-
+// --- 1. REGISTER ---
 func Register(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, `{"error": "Method tidak diizinkan"}`, http.StatusMethodNotAllowed)
+	w.Header().Set("Content-Type", "application/json")
+	var user models.User
+	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
+		http.Error(w, `{"error": "Data tidak valid"}`, http.StatusBadRequest)
 		return
 	}
 
-	var req RegisterRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Format data tidak valid"}`))
-		return
-	}
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 
-	// --- 4 HAL PENTING: Poin D (Robust Validation) ---
-
-	// 1. Validasi Email Mahasiswa
-	if !strings.HasSuffix(req.Email, "@student.unklab.ac.id") {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Gagal! Wajib menggunakan email @student.unklab.ac.id"}`))
-		return
-	}
-
-	// 2. Sanitasi & Format Nomor WhatsApp (Ubah 08 menjadi 628)
-	// Agar link wa.me/ di frontend bisa langsung bekerja
-	if strings.HasPrefix(req.Phone, "08") {
-		req.Phone = "628" + req.Phone[2:]
-	} else if strings.HasPrefix(req.Phone, "+62") {
-		req.Phone = "62" + req.Phone[3:]
-	}
-
-	// --- 4 HAL PENTING: Poin A (Keamanan Password / Bcrypt) ---
-
-	// Hash password sebelum disimpan ke database
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Gagal memproses password"}`))
-		return
-	}
-
-	// SIMPAN KE DATABASE
-	query := `INSERT INTO users (full_name, email, phone, student_id, faculty, password) VALUES (?, ?, ?, ?, ?, ?)`
-	_, err = config.DB.Exec(query, req.FullName, req.Email, req.Phone, req.StudentID, req.Faculty, string(hashedPassword))
+	query := `INSERT INTO users (nama_depan, nama_belakang, email, password, nim, no_whatsapp, nomor_registrasi) 
+	          VALUES (?, ?, ?, ?, ?, ?, ?)`
+	_, err := config.DB.Exec(query, user.NamaDepan, user.NamaBelakang, user.Email, hashedPassword, user.NIM, user.NoWhatsapp, user.NomorRegistrasi)
 
 	if err != nil {
-		// Jika email atau student_id sudah ada (karena ada aturan UNIQUE di database)
 		if strings.Contains(err.Error(), "Duplicate entry") {
-			w.WriteHeader(http.StatusConflict)
-			w.Write([]byte(`{"error": "Email atau NIM sudah terdaftar"}`))
+			http.Error(w, `{"error": "Email atau NIM sudah terdaftar!"}`, http.StatusConflict)
 			return
 		}
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Gagal mendaftarkan user"}`))
+		http.Error(w, `{"error": "Gagal menyimpan data"}`, http.StatusInternalServerError)
 		return
 	}
 
-	// Response Sukses
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(`{"message": "Registrasi berhasil! Silakan login."}`))
+	w.Write([]byte(`{"message": "Registrasi berhasil!"}`))
 }
 
-// Struktur data untuk Login
-type LoginRequest struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
-
+// --- 2. LOGIN ---
 func Login(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, `{"error": "Method tidak diizinkan"}`, http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req LoginRequest
-	err := json.NewDecoder(r.Body).Decode(&req)
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error": "Format data tidak valid"}`))
-		return
-	}
-
-	// 1. Cari user berdasarkan email di database
-	var id int
-	var hashedPassword, role, fullName string
-
-	query := `SELECT id, password, role, full_name FROM users WHERE email = ?`
-	err = config.DB.QueryRow(query, req.Email).Scan(&id, &hashedPassword, &role, &fullName)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error": "Email atau password salah"}`))
-			return
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Terjadi kesalahan pada server"}`))
-		return
-	}
-
-	// 2. Cocokkan password yang diinput dengan password hash di database
-	err = bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(req.Password))
-	if err != nil {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte(`{"error": "Email atau password salah"}`))
-		return
-	}
-
-	// 3. Jika cocok, Buat JWT Token
-	// Kita simpan ID dan Role di dalam token agar frontend tahu siapa yang login
-	claims := jwt.MapClaims{
-		"user_id":   id,
-		"role":      role,
-		"full_name": fullName,
-		"exp":       time.Now().Add(time.Hour * 24).Unix(), // Token berlaku 24 jam
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	secretKey := os.Getenv("JWT_SECRET") // Mengambil rahasia dari file .env
-	tokenString, err := token.SignedString([]byte(secretKey))
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"error": "Gagal membuat token"}`))
-		return
-	}
-
-	// 4. Kirim respon sukses beserta Token
-	response := map[string]string{
-		"message": "Login berhasil",
-		"token":   tokenString,
-		"role":    role,
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	var reqUser models.User
+	var dbUser models.User
 
+	json.NewDecoder(r.Body).Decode(&reqUser)
+
+	query := `SELECT id, password, nama_depan FROM users WHERE email = ?`
+	err := config.DB.QueryRow(query, reqUser.Email).Scan(&dbUser.ID, &dbUser.Password, &dbUser.NamaDepan)
+
+	if err == sql.ErrNoRows {
+		http.Error(w, `{"error": "Email tidak ditemukan"}`, http.StatusUnauthorized)
+		return
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(dbUser.Password), []byte(reqUser.Password)); err != nil {
+		http.Error(w, `{"error": "Password salah"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// Buat Token dengan memasukkan ID user
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"user_id": dbUser.ID,
+		"exp":     time.Now().Add(time.Hour * 24).Unix(),
+	})
+	tokenString, _ := token.SignedString([]byte(os.Getenv("JWT_SECRET")))
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"message": "Login berhasil, Halo " + dbUser.NamaDepan,
+		"token":   tokenString,
+	})
 }
 
+// --- 3. GET PROFILE ---
 func Profile(w http.ResponseWriter, r *http.Request) {
-	// Karena sudah melewati "Satpam" (Middleware), kita yakin user ini valid
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{
-		"message": "Selamat datang di area VIP!",
-		"info": "Jika Anda melihat pesan ini, berarti token JWT Anda valid dan Satpam mengizinkan Anda masuk."
-	}`))
+
+	// Ambil user_id dari context middleware
+	userID := r.Context().Value("user_id").(float64)
+
+	var user models.User
+	query := `SELECT id, nama_depan, nama_belakang, email, nim, no_whatsapp, nomor_registrasi FROM users WHERE id = ?`
+	err := config.DB.QueryRow(query, int(userID)).Scan(
+		&user.ID, &user.NamaDepan, &user.NamaBelakang, &user.Email, &user.NIM, &user.NoWhatsapp, &user.NomorRegistrasi,
+	)
+
+	if err != nil {
+		http.Error(w, `{"error": "User tidak ditemukan"}`, http.StatusNotFound)
+		return
+	}
+
+	json.NewEncoder(w).Encode(user)
+}
+
+// --- 4. CHANGE PASSWORD ---
+func ChangePassword(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	userID := r.Context().Value("user_id").(float64)
+
+	var req struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	var dbPassword string
+	config.DB.QueryRow(`SELECT password FROM users WHERE id = ?`, int(userID)).Scan(&dbPassword)
+
+	// Cek password lama
+	if err := bcrypt.CompareHashAndPassword([]byte(dbPassword), []byte(req.OldPassword)); err != nil {
+		http.Error(w, `{"error": "Password lama salah"}`, http.StatusUnauthorized)
+		return
+	}
+
+	// Hash dan simpan password baru
+	hashedNewPassword, _ := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
+	config.DB.Exec(`UPDATE users SET password = ? WHERE id = ?`, hashedNewPassword, int(userID))
+
+	w.Write([]byte(`{"message": "Password berhasil diubah!"}`))
+}
+
+// --- 5. UPDATE STATUS BARANG ---
+func UpdateStatusBarang(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	// Format JSON Request: {"barang_id": 1, "status": "ditemukan"}
+	var req struct {
+		BarangID int    `json:"barang_id"`
+		Status   string `json:"status"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	// Pastikan status valid sesuai ENUM database
+	if req.Status != "hilang" && req.Status != "ditemukan" && req.Status != "selesai" {
+		http.Error(w, `{"error": "Status tidak valid"}`, http.StatusBadRequest)
+		return
+	}
+
+	_, err := config.DB.Exec(`UPDATE barangs SET status = ? WHERE id = ?`, req.Status, req.BarangID)
+	if err != nil {
+		http.Error(w, `{"error": "Gagal update status"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte(`{"message": "Status barang berhasil diupdate!"}`))
 }
