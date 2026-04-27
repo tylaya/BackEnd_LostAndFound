@@ -82,7 +82,7 @@ func Profile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Ambil user_id dari context middleware
-	userID := r.Context().Value("user_id").(float64)
+	userID := r.Context().Value("user_id").(int)
 
 	var user models.User
 	query := `SELECT id, nama_depan, nama_belakang, email, nim, no_whatsapp, nomor_registrasi FROM users WHERE id = ?`
