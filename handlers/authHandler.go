@@ -16,11 +16,19 @@ import (
 )
 
 // --- 1. REGISTER ---
+// --- 1. REGISTER ---
 func Register(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var user models.User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, `{"error": "Data tidak valid"}`, http.StatusBadRequest)
+		return
+	}
+
+	// 🚨 FILTER EMAIL KAMPUS (UNNLAB) 🚨
+	// Mengecek apakah email berakhiran "@student.unklab.ac.id"
+	if !strings.HasSuffix(user.Email, "@student.unklab.ac.id") {
+		http.Error(w, `{"error": "Akses ditolak! Hanya email @student.unklab.ac.id yang diizinkan untuk mendaftar."}`, http.StatusForbidden)
 		return
 	}
 
@@ -50,6 +58,13 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	var dbUser models.User
 
 	json.NewDecoder(r.Body).Decode(&reqUser)
+
+	// 🚨 FILTER EMAIL KAMPUS (UNNLAB) 🚨
+	// Mencegah proses query database jika email bukan email kampus
+	if !strings.HasSuffix(reqUser.Email, "@student.unklab.ac.id") {
+		http.Error(w, `{"error": "Akses ditolak! Gunakan email @student.unklab.ac.id untuk login."}`, http.StatusForbidden)
+		return
+	}
 
 	query := `SELECT id, password, nama_depan FROM users WHERE email = ?`
 	err := config.DB.QueryRow(query, reqUser.Email).Scan(&dbUser.ID, &dbUser.Password, &dbUser.NamaDepan)
@@ -101,7 +116,8 @@ func Profile(w http.ResponseWriter, r *http.Request) {
 // --- 4. CHANGE PASSWORD ---
 func ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	userID := r.Context().Value("user_id").(float64)
+
+	userID := r.Context().Value("user_id").(int)
 
 	var req struct {
 		OldPassword string `json:"old_password"`
@@ -110,7 +126,7 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 
 	var dbPassword string
-	config.DB.QueryRow(`SELECT password FROM users WHERE id = ?`, int(userID)).Scan(&dbPassword)
+	config.DB.QueryRow(`SELECT password FROM users WHERE id = ?`, userID).Scan(&dbPassword)
 
 	// Cek password lama
 	if err := bcrypt.CompareHashAndPassword([]byte(dbPassword), []byte(req.OldPassword)); err != nil {
@@ -120,7 +136,7 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Hash dan simpan password baru
 	hashedNewPassword, _ := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
-	config.DB.Exec(`UPDATE users SET password = ? WHERE id = ?`, hashedNewPassword, int(userID))
+	config.DB.Exec(`UPDATE users SET password = ? WHERE id = ?`, hashedNewPassword, userID)
 
 	w.Write([]byte(`{"message": "Password berhasil diubah!"}`))
 }
