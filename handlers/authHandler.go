@@ -130,8 +130,9 @@ func UpdateStatusBarang(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// 1. Ambil ID User yang sedang login (dari token)
-	userID := r.Context().Value("user_id").(float64)
+	userID := r.Context().Value("user_id").(int)
 
+	// Format JSON Request: {"barang_id": 1, "status": "ditemukan"}
 	var req struct {
 		BarangID int    `json:"barang_id"`
 		Status   string `json:"status"`
@@ -143,18 +144,17 @@ func UpdateStatusBarang(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. UBAH QUERY SQL-NYA! Tambahkan "AND user_id = ?"
-	result, err := config.DB.Exec(`UPDATE barangs SET status = ? WHERE id = ? AND user_id = ?`, req.Status, req.BarangID, int(userID))
+	// 2. QUERY DIAMANKAN: Cek id barang DAN user_id pemiliknya
+	result, err := config.DB.Exec(`UPDATE barangs SET status = ? WHERE id = ? AND user_id = ?`, req.Status, req.BarangID, userID)
 	if err != nil {
 		http.Error(w, `{"error": "Gagal update status"}`, http.StatusInternalServerError)
 		return
 	}
 
-	// 3. Cek apakah ada barang yang berhasil di-update
+	// 3. CEK APAKAH ADA BARANG YANG BERUBAH
 	rowsAffected, _ := result.RowsAffected()
 	if rowsAffected == 0 {
-		// Jika 0, berarti ID Barang tidak ada, ATAU dia mencoba mengedit barang orang lain!
-		http.Error(w, `{"error": "Akses Ditolak! Anda bukan pemilik barang ini."}`, http.StatusForbidden)
+		http.Error(w, `{"error": "Akses Ditolak! Anda bukan pemilik barang ini atau barang tidak ditemukan."}`, http.StatusForbidden)
 		return
 	}
 
