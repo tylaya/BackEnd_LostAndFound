@@ -39,7 +39,7 @@ func processUpload(db *sql.DB, w http.ResponseWriter, r *http.Request, status st
 	}
 
 	
-	userID := r.Context().Value("user_id").(float64)
+	userID := r.Context().Value("user_id").(int)
 	namaBarang := r.FormValue("nama_barang")
 	deskripsi := r.FormValue("deskripsi")
 	kategoriID := r.FormValue("kategori_id")

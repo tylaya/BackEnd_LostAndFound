@@ -101,7 +101,7 @@ func Profile(w http.ResponseWriter, r *http.Request) {
 // --- 4. CHANGE PASSWORD ---
 func ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	userID := r.Context().Value("user_id").(float64)
+	userID := r.Context().Value("user_id").(int)
 
 	var req struct {
 		OldPassword string `json:"old_password"`
