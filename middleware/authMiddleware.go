@@ -50,16 +50,15 @@ func RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// 4. Jika Token Valid, ekstrak data (claims) di dalamnya
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			// Ambil user_id dari dalam token dan masukkan ke Context (catatan untuk request ini)
-			ctx := context.WithValue(r.Context(), "user_id", claims["user_id"])
+        if claims, ok := token.Claims.(jwt.MapClaims); ok { 
+            // id asli dri token dan pastikan data float64
+            ctx := context.WithValue(r.Context(), "user_id", claims["user_id"].(float64)) 
 
-			// Izinkan request melanjutkan perjalanannya ke Handler (misal: handlers.Profile)
-			next(w, r.WithContext(ctx))
-		} else {
-			w.WriteHeader(http.StatusUnauthorized)
-			w.Write([]byte(`{"error": "Gagal membaca isi token!"}`))
-			return
-		}
+            next(w, r.WithContext(ctx))
+        } else {
+            w.WriteHeader(http.StatusUnauthorized)
+            w.Write([]byte(`{"error": "Gagal membaca isi token!"}`))
+            return
+        }
 	}
 }

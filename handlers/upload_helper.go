@@ -38,7 +38,8 @@ func processUpload(db *sql.DB, w http.ResponseWriter, r *http.Request, status st
 		return
 	}
 
-	userID := r.FormValue("user_id")
+	
+	userID := r.Context().Value("user_id").(float64)
 	namaBarang := r.FormValue("nama_barang")
 	deskripsi := r.FormValue("deskripsi")
 	kategoriID := r.FormValue("kategori_id")
@@ -95,7 +96,6 @@ func processUpload(db *sql.DB, w http.ResponseWriter, r *http.Request, status st
 		INSERT INTO Barangs (user_id, nama_barang, deskripsi, kategori_id, status, lokasi, tanggal_laporan, foto, created_at, updated_at) 
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
 	`
-	userID = "1" 
 	_, err = db.Exec(query, userID, namaBarang, deskripsi, kategoriID, status, lokasi, tanggalLaporan, destPath)
 	if err != nil {
 		os.Remove(destPath)
