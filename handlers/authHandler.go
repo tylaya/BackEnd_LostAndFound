@@ -129,22 +129,32 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 func UpdateStatusBarang(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Format JSON Request: {"barang_id": 1, "status": "ditemukan"}
+	// 1. Ambil ID User yang sedang login (dari token)
+	userID := r.Context().Value("user_id").(float64)
+
 	var req struct {
 		BarangID int    `json:"barang_id"`
 		Status   string `json:"status"`
 	}
 	json.NewDecoder(r.Body).Decode(&req)
 
-	// Pastikan status valid sesuai ENUM database
 	if req.Status != "hilang" && req.Status != "ditemukan" && req.Status != "selesai" {
 		http.Error(w, `{"error": "Status tidak valid"}`, http.StatusBadRequest)
 		return
 	}
 
-	_, err := config.DB.Exec(`UPDATE barangs SET status = ? WHERE id = ?`, req.Status, req.BarangID)
+	// 2. UBAH QUERY SQL-NYA! Tambahkan "AND user_id = ?"
+	result, err := config.DB.Exec(`UPDATE barangs SET status = ? WHERE id = ? AND user_id = ?`, req.Status, req.BarangID, int(userID))
 	if err != nil {
 		http.Error(w, `{"error": "Gagal update status"}`, http.StatusInternalServerError)
+		return
+	}
+
+	// 3. Cek apakah ada barang yang berhasil di-update
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		// Jika 0, berarti ID Barang tidak ada, ATAU dia mencoba mengedit barang orang lain!
+		http.Error(w, `{"error": "Akses Ditolak! Anda bukan pemilik barang ini."}`, http.StatusForbidden)
 		return
 	}
 
