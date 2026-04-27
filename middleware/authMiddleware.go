@@ -50,7 +50,7 @@ func RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// 4. Jika Token Valid, ekstrak data (claims) di dalamnya
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
+if claims, ok := token.Claims.(jwt.MapClaims); ok {
 			// JWT membaca angka sebagai float64 secara default.
 			// Kita lakukan type assertion ke float64 terlebih dahulu.
 			if userIDFloat, ok := claims["user_id"].(float64); ok {
