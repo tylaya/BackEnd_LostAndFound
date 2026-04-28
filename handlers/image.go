@@ -1,3 +1,4 @@
+// handlers/image.go
 package handlers
 
 import (

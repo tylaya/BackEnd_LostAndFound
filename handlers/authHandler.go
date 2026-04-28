@@ -1,3 +1,4 @@
+// handlers/authHandler.go
 package handlers
 
 import (

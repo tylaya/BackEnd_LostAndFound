@@ -1,3 +1,4 @@
+// handlers/upload_helper.go
 package handlers
 
 import (
@@ -8,10 +9,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
-// init otomatis membuat folder uploads
 func init() {
 	err := os.MkdirAll("./uploads", os.ModePerm)
 	if err != nil {
@@ -25,20 +26,18 @@ type APIResponse struct {
 	Data    any    `json:"data,omitempty"`
 }
 
-// processUpload adalah fungsi helper inti. Diawali huruf kecil agar private di dalam package handlers.
 func processUpload(db *sql.DB, w http.ResponseWriter, r *http.Request, status string) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method tidak diizinkan", http.StatusMethodNotAllowed)
 		return
 	}
 
-	err := r.ParseMultipartForm(10 << 20) // Max 10MB
+	err := r.ParseMultipartForm(10 << 20)
 	if err != nil {
 		http.Error(w, "Ukuran file terlalu besar, maksimal 10MB", http.StatusBadRequest)
 		return
 	}
 
-	
 	userID := r.Context().Value("user_id").(int)
 	namaBarang := r.FormValue("nama_barang")
 	deskripsi := r.FormValue("deskripsi")
@@ -78,7 +77,8 @@ func processUpload(db *sql.DB, w http.ResponseWriter, r *http.Request, status st
 	ext := filepath.Ext(header.Filename)
 	now := time.Now().Format("20060102_150405")
 	filename := fmt.Sprintf("barang_%s_%s%s", status, now, ext)
-	destPath := filepath.Join("uploads", filename)
+	// Gunakan forward slash agar path konsisten di semua OS
+	destPath := "uploads/" + filename
 
 	dst, err := os.Create(destPath)
 	if err != nil {
@@ -96,12 +96,17 @@ func processUpload(db *sql.DB, w http.ResponseWriter, r *http.Request, status st
 		INSERT INTO Barangs (user_id, nama_barang, deskripsi, kategori_id, status, lokasi, tanggal_laporan, foto, created_at, updated_at) 
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
 	`
-	_, err = db.Exec(query, userID, namaBarang, deskripsi, kategoriID, status, lokasi, tanggalLaporan, destPath)
+	result, err := db.Exec(query, userID, namaBarang, deskripsi, kategoriID, status, lokasi, tanggalLaporan, destPath)
 	if err != nil {
 		os.Remove(destPath)
-
-		http.Error(w, "Gagal menyimpan data ke database: " + err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Gagal menyimpan data ke database: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// ← TAMBAHAN: ambil ID yang baru dibuat untuk dikirim ke frontend
+	newID, err := result.LastInsertId()
+	if err != nil {
+		newID = 0
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -110,10 +115,11 @@ func processUpload(db *sql.DB, w http.ResponseWriter, r *http.Request, status st
 	json.NewEncoder(w).Encode(APIResponse{
 		Status:  http.StatusCreated,
 		Message: fmt.Sprintf("Laporan barang %s berhasil diunggah", status),
-		Data: map[string]string{
+		Data: map[string]interface{}{
+			"id":          newID,                                   // ← ID asli dari DB
 			"nama_barang": namaBarang,
 			"status":      status,
-			"foto_path":   destPath,
+			"foto_path":   strings.ReplaceAll(destPath, "\\", "/"), // forward slash
 		},
 	})
 }
