@@ -1,3 +1,4 @@
+// models/models.go
 package models
 
 // Struct untuk tabel users

@@ -1,4 +1,4 @@
-// handlers/produkhandler.go
+// handlers/myitemshandler.go
 package handlers
 
 import (
@@ -8,27 +8,24 @@ import (
 	"strings"
 )
 
-type BarangList struct {
-	ID             int    `json:"id"`
-	UserID         int    `json:"user_id"`       // ← TAMBAHAN: untuk filter "Barang Saya"
-	NamaBarang     string `json:"nama_barang"`
-	Deskripsi      string `json:"deskripsi"`
-	Status         string `json:"status"`
-	Lokasi         string `json:"lokasi"`
-	TanggalLaporan string `json:"tanggal_laporan"`
-	Foto           string `json:"foto"`
-}
-
-// HandlerProductList untuk mengambil semua data barang
-func HandlerProductList(w http.ResponseWriter, r *http.Request) {
+// GetMyItemsHandler mengambil daftar barang milik user yang sedang login (berdasarkan JWT)
+func GetMyItemsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Tambah user_id di SELECT
+	if r.Method != http.MethodGet {
+		http.Error(w, `{"error": "Method tidak diizinkan"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Ambil user_id dari context (sudah diset oleh middleware RequireAuth)
+	userID := r.Context().Value("user_id").(int)
+
 	rows, err := config.DB.Query(`
 		SELECT id, user_id, nama_barang, deskripsi, status, lokasi, tanggal_laporan, foto 
 		FROM barangs 
+		WHERE user_id = ?
 		ORDER BY created_at DESC
-	`)
+	`, userID)
 	if err != nil {
 		http.Error(w, `{"error": "Gagal mengambil data database"}`, http.StatusInternalServerError)
 		return
@@ -46,14 +43,18 @@ func HandlerProductList(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			continue
 		}
-		// Fix path Windows backslash → forward slash agar bisa jadi URL
+		// Fix path Windows backslash → forward slash
 		b.Foto = strings.ReplaceAll(b.Foto, "\\", "/")
 		listBarang = append(listBarang, b)
 	}
 
+	if listBarang == nil {
+		listBarang = []BarangList{}
+	}
+
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":  200,
-		"message": "Berhasil mengambil daftar barang",
+		"message": "Berhasil mengambil daftar barang milik user",
 		"data":    listBarang,
 	})
 }
