@@ -23,6 +23,7 @@ func RegisterRoutes() {
 
 	// Rute VIP (Wajib Token JWT)
 	http.HandleFunc("/api/profile", middleware.RequireAuth(handlers.Profile))
+	http.HandleFunc("/api/update-profile", middleware.RequireAuth(handlers.UpdateProfile))
 	http.HandleFunc("/api/change-password", middleware.RequireAuth(handlers.ChangePassword))
 	http.HandleFunc("/api/status-barang", middleware.RequireAuth(handlers.UpdateStatusBarang))
 	
