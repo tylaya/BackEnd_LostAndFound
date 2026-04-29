@@ -142,7 +142,41 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(`{"message": "Password berhasil diubah!"}`))
 }
 
-// --- 5. UPDATE STATUS BARANG ---
+// --- 5. UPDATE PROFILE ---
+func UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	userID := r.Context().Value("user_id").(int)
+
+	var req struct {
+		NamaDepan       string `json:"nama_depan"`
+		NamaBelakang    string `json:"nama_belakang"`
+		NoWhatsapp      string `json:"no_whatsapp"`
+		NomorRegistrasi string `json:"nomor_registrasi"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, `{"error": "Data tidak valid"}`, http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(req.NamaDepan) == "" {
+		http.Error(w, `{"error": "Nama depan wajib diisi"}`, http.StatusBadRequest)
+		return
+	}
+
+	_, err := config.DB.Exec(
+		`UPDATE users SET nama_depan = ?, nama_belakang = ?, no_whatsapp = ?, nomor_registrasi = ? WHERE id = ?`,
+		req.NamaDepan, req.NamaBelakang, req.NoWhatsapp, req.NomorRegistrasi, userID,
+	)
+	if err != nil {
+		http.Error(w, `{"error": "Gagal menyimpan perubahan"}`, http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte(`{"message": "Profil berhasil diperbarui!"}`))
+}
+
+// --- 6. UPDATE STATUS BARANG ---
 
 func UpdateStatusBarang(w http.ResponseWriter, r *http.Request) {
 
