@@ -1,3 +1,4 @@
+// handlers/authHandler.go
 package handlers
 
 import (
@@ -16,11 +17,19 @@ import (
 )
 
 // --- 1. REGISTER ---
+// --- 1. REGISTER ---
 func Register(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	var user models.User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, `{"error": "Data tidak valid"}`, http.StatusBadRequest)
+		return
+	}
+
+	// 🚨 FILTER EMAIL KAMPUS (UNNLAB) 🚨
+	// Mengecek apakah email berakhiran "@student.unklab.ac.id"
+	if !strings.HasSuffix(user.Email, "@student.unklab.ac.id") {
+		http.Error(w, `{"error": "Akses ditolak! Hanya email @student.unklab.ac.id yang diizinkan untuk mendaftar."}`, http.StatusForbidden)
 		return
 	}
 
@@ -50,6 +59,13 @@ func Login(w http.ResponseWriter, r *http.Request) {
 	var dbUser models.User
 
 	json.NewDecoder(r.Body).Decode(&reqUser)
+
+	// 🚨 FILTER EMAIL KAMPUS (UNNLAB) 🚨
+	// Mencegah proses query database jika email bukan email kampus
+	if !strings.HasSuffix(reqUser.Email, "@student.unklab.ac.id") {
+		http.Error(w, `{"error": "Akses ditolak! Gunakan email @student.unklab.ac.id untuk login."}`, http.StatusForbidden)
+		return
+	}
 
 	query := `SELECT id, password, nama_depan FROM users WHERE email = ?`
 	err := config.DB.QueryRow(query, reqUser.Email).Scan(&dbUser.ID, &dbUser.Password, &dbUser.NamaDepan)
@@ -82,7 +98,7 @@ func Profile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Ambil user_id dari context middleware
-	userID := r.Context().Value("user_id").(float64)
+	userID := r.Context().Value("user_id").(int)
 
 	var user models.User
 	query := `SELECT id, nama_depan, nama_belakang, email, nim, no_whatsapp, nomor_registrasi FROM users WHERE id = ?`
@@ -101,7 +117,8 @@ func Profile(w http.ResponseWriter, r *http.Request) {
 // --- 4. CHANGE PASSWORD ---
 func ChangePassword(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	userID := r.Context().Value("user_id").(float64)
+
+	userID := r.Context().Value("user_id").(int)
 
 	var req struct {
 		OldPassword string `json:"old_password"`
@@ -110,7 +127,7 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&req)
 
 	var dbPassword string
-	config.DB.QueryRow(`SELECT password FROM users WHERE id = ?`, int(userID)).Scan(&dbPassword)
+	config.DB.QueryRow(`SELECT password FROM users WHERE id = ?`, userID).Scan(&dbPassword)
 
 	// Cek password lama
 	if err := bcrypt.CompareHashAndPassword([]byte(dbPassword), []byte(req.OldPassword)); err != nil {
@@ -120,33 +137,63 @@ func ChangePassword(w http.ResponseWriter, r *http.Request) {
 
 	// Hash dan simpan password baru
 	hashedNewPassword, _ := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
-	config.DB.Exec(`UPDATE users SET password = ? WHERE id = ?`, hashedNewPassword, int(userID))
+	config.DB.Exec(`UPDATE users SET password = ? WHERE id = ?`, hashedNewPassword, userID)
 
 	w.Write([]byte(`{"message": "Password berhasil diubah!"}`))
 }
 
 // --- 5. UPDATE STATUS BARANG ---
+
 func UpdateStatusBarang(w http.ResponseWriter, r *http.Request) {
+
 	w.Header().Set("Content-Type", "application/json")
 
+	// 1. Ambil ID User yang sedang login (dari token)
+
+	userID := r.Context().Value("user_id").(int)
+
 	// Format JSON Request: {"barang_id": 1, "status": "ditemukan"}
+
 	var req struct {
-		BarangID int    `json:"barang_id"`
-		Status   string `json:"status"`
+		BarangID int `json:"barang_id"`
+
+		Status string `json:"status"`
 	}
+
 	json.NewDecoder(r.Body).Decode(&req)
 
-	// Pastikan status valid sesuai ENUM database
 	if req.Status != "hilang" && req.Status != "ditemukan" && req.Status != "selesai" {
+
 		http.Error(w, `{"error": "Status tidak valid"}`, http.StatusBadRequest)
+
 		return
+
 	}
 
-	_, err := config.DB.Exec(`UPDATE barangs SET status = ? WHERE id = ?`, req.Status, req.BarangID)
+	// 2. QUERY DIAMANKAN: Cek id barang DAN user_id pemiliknya
+
+	result, err := config.DB.Exec(`UPDATE barangs SET status = ? WHERE id = ? AND user_id = ?`, req.Status, req.BarangID, userID)
+
 	if err != nil {
+
 		http.Error(w, `{"error": "Gagal update status"}`, http.StatusInternalServerError)
+
 		return
+
+	}
+
+	// 3. CEK APAKAH ADA BARANG YANG BERUBAH
+
+	rowsAffected, _ := result.RowsAffected()
+
+	if rowsAffected == 0 {
+
+		http.Error(w, `{"error": "Akses Ditolak! Anda bukan pemilik barang ini atau barang tidak ditemukan."}`, http.StatusForbidden)
+
+		return
+
 	}
 
 	w.Write([]byte(`{"message": "Status barang berhasil diupdate!"}`))
+
 }

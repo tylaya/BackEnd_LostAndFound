@@ -1,3 +1,4 @@
+//middleware/authMiddleware.go
 package middleware
 
 import (
@@ -50,12 +51,25 @@ func RequireAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 
 		// 4. Jika Token Valid, ekstrak data (claims) di dalamnya
-		if claims, ok := token.Claims.(jwt.MapClaims); ok {
-			// Ambil user_id dari dalam token dan masukkan ke Context (catatan untuk request ini)
-			ctx := context.WithValue(r.Context(), "user_id", claims["user_id"])
+if claims, ok := token.Claims.(jwt.MapClaims); ok {
+			// JWT membaca angka sebagai float64 secara default.
+			// Kita lakukan type assertion ke float64 terlebih dahulu.
+			if userIDFloat, ok := claims["user_id"].(float64); ok {
 
-			// Izinkan request melanjutkan perjalanannya ke Handler (misal: handlers.Profile)
-			next(w, r.WithContext(ctx))
+				// Konversi float64 menjadi int (karena ID di database kamu adalah INT)
+				userID := int(userIDFloat)
+
+				// Masukkan userID (yang sekarang sudah dijamin bertipe int) ke dalam Context
+				ctx := context.WithValue(r.Context(), "user_id", userID)
+
+				// Izinkan request melanjutkan perjalanannya ke Handler
+				next(w, r.WithContext(ctx))
+			} else {
+				// Jika gagal membaca user_id dari token
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error": "Format token tidak valid: user_id gagal diekstrak!"}`))
+				return
+			}
 		} else {
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"error": "Gagal membaca isi token!"}`))
